@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
-import { spawn } from 'node:child_process';
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -96,123 +96,128 @@ async function generateSummary(structure) {
 }
 
 async function generateTts(summary) {
-  const model = process.env.PIPER_MODEL || 'en_US-lessac-medium';
+    const model = process.env.PIPER_MODEL || "en_US-lessac-medium";
 
-  const outputFile = path.join(
-    os.tmpdir(),
-    `blv-${crypto.randomUUID()}.wav`
-  );
+    const outputFile = path.join(os.tmpdir(), `blv-${crypto.randomUUID()}.wav`);
 
-  console.log(`Generating TTS with Piper (${model})...`);
+    console.log(`Generating TTS with Piper (${model})...`);
 
-  try {
-    await new Promise((resolve, reject) => {
-      const piper = spawn(
-        'piper',
-        [
-          '--model',
-          model,
-          '--output_file',
-          outputFile
-        ],
-        {
-          windowsHide: true
-        }
-      );
+    try {
+        await new Promise((resolve, reject) => {
+            const piper = spawn(
+                "piper",
+                ["--model", model, "--output_file", outputFile],
+                {
+                    windowsHide: true,
+                },
+            );
 
-      let stderr = '';
+            let stderr = "";
 
-      piper.stderr.on('data', data => {
-        stderr += data.toString();
-      });
+            piper.stderr.on("data", (data) => {
+                stderr += data.toString();
+            });
 
-      piper.on('error', reject);
+            piper.on("error", reject);
 
-      piper.on('close', code => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(
-            new Error(`Piper exited with code ${code}: ${stderr}`)
-          );
-        }
-      });
+            piper.on("close", (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(
+                        new Error(`Piper exited with code ${code}: ${stderr}`),
+                    );
+                }
+            });
 
-      piper.stdin.write(summary);
-      piper.stdin.end();
-    });
+            piper.stdin.write(summary);
+            piper.stdin.end();
+        });
 
-    const audioBuffer = await fs.readFile(outputFile);
+        const audioBuffer = await fs.readFile(outputFile);
 
-    console.log(`Piper generated ${(audioBuffer.length / 1024).toFixed(1)} KB of audio.`);
+        console.log(
+            `Piper generated ${(audioBuffer.length / 1024).toFixed(1)} KB of audio.`,
+        );
 
-    return `data:audio/wav;base64,${audioBuffer.toString('base64')}`;
-
-  } finally {
-    await fs.rm(outputFile, { force: true }).catch(() => {});
-  }
+        return `data:audio/wav;base64,${audioBuffer.toString("base64")}`;
+    } finally {
+        console.log("[Piper] Keeping WAV for testing:", outputFile);
+    }
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-app.post('/summarize', async (req, res) => {
-  try {
-    const summary = `This is the ChatGPT page. At the top is a header with a share button. On the left is a sidebar with navigation. It includes a link to the home page, a search button, and a list of links: New chat, Images, Library, Scheduled, Plugins, and More. At the bottom left of the sidebar is your profile, Ahmad Zubair Free, with a menu button. The main content area is in the center, labeled Think. At the bottom is a chat form with a text area called Chat with ChatGPT, an add files button, a Think button, and a send prompt button. There is also a skip to content link at the top left.`;
+app.post("/summarize", async (req, res) => {
+    try {
+        const { structure } = req.body || {};
 
-    console.log('\n========== TEST SUMMARY ==========');
-    console.log(summary);
-    console.log('==================================\n');
+        if (!structure || !Array.isArray(structure.elements)) {
+            return res.status(400).json({
+                error: "structure.elements must be an array",
+            });
+        }
 
-    const audio = await generateTts(summary);
+        // 1. Generate summary using the LLM
+        const summary = await generateSummary(structure);
 
-    console.log('TTS generation completed.');
+        if (!summary) {
+            throw new Error("LLM returned an empty summary");
+        }
 
-    return res.json({
-      summary,
-      audio
-    });
+        console.log("\n========== LLM SUMMARY ==========");
+        console.log(summary);
+        console.log("==================================\n");
 
-  } catch (error) {
-    console.error('TTS test failed:', error);
+        // 2. Send that exact summary to Piper
+        const audio = await generateTts(summary);
 
-    return res.status(500).json({
-      error: error.message || 'TTS generation failed'
-    });
-  }
+        console.log("TTS generation completed.");
+
+        return res.json({
+            summary,
+            audio,
+        });
+    } catch (error) {
+        console.error("Summarization failed:", error);
+
+        return res.status(500).json({
+            error: error.message || "Summarization failed",
+        });
+    }
 });
 
-app.get('/test-tts', async (_req, res) => {
-  try {
-    const summary =
-      'This is a test of the Piper text to speech system. ' +
-      'The audio should be generated by Piper running locally on the backend.';
+app.get("/test-tts", async (_req, res) => {
+    try {
+        const summary =
+            "This is a test of the Piper text to speech system. " +
+            "The audio should be generated by Piper running locally on the backend.";
 
-    console.log('\n========== TTS TEST ==========');
-    console.log('Sending text to Piper:');
-    console.log(summary);
+        console.log("\n========== TTS TEST ==========");
+        console.log("Sending text to Piper:");
+        console.log(summary);
 
-    const audio = await generateTts(summary);
+        const audio = await generateTts(summary);
 
-    console.log('Piper returned audio successfully.');
-    console.log('Audio data length:', audio.length);
-    console.log('==============================\n');
+        console.log("Piper returned audio successfully.");
+        console.log("Audio data length:", audio.length);
+        console.log("==============================\n");
 
-    return res.json({
-      success: true,
-      message: 'Piper generated audio successfully',
-      audioLength: audio.length
-    });
+        return res.json({
+            success: true,
+            message: "Piper generated audio successfully",
+            audioLength: audio.length,
+        });
+    } catch (error) {
+        console.error("\n========== TTS TEST FAILED ==========");
+        console.error(error);
+        console.error("=====================================\n");
 
-  } catch (error) {
-    console.error('\n========== TTS TEST FAILED ==========');
-    console.error(error);
-    console.error('=====================================\n');
-
-    return res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
 });
 
 app.listen(port, () =>

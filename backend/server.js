@@ -103,11 +103,7 @@ async function generateTts(summary) {
     `blv-${crypto.randomUUID()}.wav`
   );
 
-  console.log('\n========== PIPER ==========');
-  console.log('Model:', model);
-  console.log('Output:', outputFile);
-  console.log('Text:', summary);
-  console.log('===========================\n');
+  console.log(`Generating TTS with Piper (${model})...`);
 
   try {
     await new Promise((resolve, reject) => {
@@ -130,31 +126,25 @@ async function generateTts(summary) {
         stderr += data.toString();
       });
 
-      piper.on('error', error => {
-        reject(error);
-      });
+      piper.on('error', reject);
 
       piper.on('close', code => {
         if (code === 0) {
           resolve();
         } else {
           reject(
-            new Error(
-              `Piper exited with code ${code}: ${stderr}`
-            )
+            new Error(`Piper exited with code ${code}: ${stderr}`)
           );
         }
       });
 
-      // Send the summary to Piper through stdin.
       piper.stdin.write(summary);
       piper.stdin.end();
     });
 
     const audioBuffer = await fs.readFile(outputFile);
 
-    console.log('Piper generated audio successfully.');
-    console.log('Audio size:', audioBuffer.length, 'bytes');
+    console.log(`Piper generated ${(audioBuffer.length / 1024).toFixed(1)} KB of audio.`);
 
     return `data:audio/wav;base64,${audioBuffer.toString('base64')}`;
 

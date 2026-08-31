@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BLV Page Navigator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>BLV Page Navigator</h1>
+    <p id="status" aria-live="polite">Loading summary…</p>
+    <article id="summary" aria-label="Page summary"></article>
+
+    <section class="controls" aria-label="Audio controls">
+      <button data-action="rewind" title="Rewind 10 seconds">Rewind</button>
+      <button data-action="toggle-play-pause" title="Play or pause">Play / Pause</button>
+      <button data-action="fast-forward" title="Fast-forward 10 seconds">Forward</button>
+      <button data-action="slow-down" title="Slow down">Slower</button>
+      <button data-action="speed-up" title="Speed up">Faster</button>
+    </section>
+    <p class="shortcut">Keyboard: Ctrl+Shift+U = play/pause</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

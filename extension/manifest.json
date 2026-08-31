@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "BLV Page Navigator",
+  "version": "0.1.0",
+  "description": "Automatically summarizes a page's spatial and semantic structure and reads it aloud before screen-reader interaction.",
+  "permissions": ["storage", "offscreen", "tabs"],
+  "host_permissions": ["<all_urls>", "http://localhost:8787/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "BLV Page Navigator",
+    "default_popup": "popup/popup.html"
+  },
+  "commands": {
+    "toggle-play-pause": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Play or pause the page summary"
+    },
+    "rewind": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Left",
+        "mac": "Command+Shift+Left"
+      },
+      "description": "Rewind the summary audio"
+    },
+    
+    "speed-up": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Up",
+        "mac": "Command+Shift+Up"
+      },
+      "description": "Speed up the summary audio"
+    },
+    "slow-down": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Down",
+        "mac": "Command+Shift+Down"
+      },
+      "description": "Slow down the summary audio"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/dom-extractor.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

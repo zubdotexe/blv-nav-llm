@@ -2,17 +2,49 @@ const audio = document.getElementById("summaryAudio");
 const notificationAudio = document.getElementById("notificationAudio");
 const navigationAudio = document.createElement("audio");
 
+audio.preload = "auto";
 notificationAudio.preload = "auto";
 notificationAudio.src = chrome.runtime.getURL("audio/shortcuts.wav");
+notificationAudio.load();
 
 navigationAudio.preload = "auto";
 navigationAudio.src = chrome.runtime.getURL("audio/navigation.wav");
+navigationAudio.load();
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 let audioLoadId = 0;
 
 console.log("[BLV Offscreen] Loaded");
+
+function logAudioDiagnostics(label) {
+    console.log(`[BLV Offscreen] ${label}`, {
+        summary: {
+            hasSrc: Boolean(audio.src),
+            src: audio.src,
+            readyState: audio.readyState,
+            networkState: audio.networkState,
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            paused: audio.paused,
+            error: audio.error,
+        },
+        notification: {
+            paused: notificationAudio.paused,
+            ended: notificationAudio.ended,
+            readyState: notificationAudio.readyState,
+            networkState: notificationAudio.networkState,
+            error: notificationAudio.error,
+        },
+        navigation: {
+            paused: navigationAudio.paused,
+            ended: navigationAudio.ended,
+            readyState: navigationAudio.readyState,
+            networkState: navigationAudio.networkState,
+            error: navigationAudio.error,
+        },
+    });
+}
 
 // ============================================================
 // STATE
@@ -74,6 +106,7 @@ audio.addEventListener("canplay", () => {
 
 audio.addEventListener("error", () => {
     console.error("[BLV Offscreen] SUMMARY AUDIO ERROR:", audio.error);
+    logAudioDiagnostics("Summary audio error");
 });
 
 // ============================================================
@@ -90,6 +123,7 @@ notificationAudio.addEventListener("pause", () => {
 
 notificationAudio.addEventListener("ended", () => {
     console.log("[BLV Offscreen] NOTIFICATION FINISHED");
+    logAudioDiagnostics("Shortcuts notification ended; summary unchanged");
 });
 
 notificationAudio.addEventListener("error", () => {
@@ -144,6 +178,8 @@ async function loadAudio(audioData) {
     // Stop notification if it happens to be playing.
     notificationAudio.pause();
     notificationAudio.currentTime = 0;
+    navigationAudio.pause();
+    navigationAudio.currentTime = 0;
 
     // Reset the summary audio.
     audio.removeAttribute("src");
@@ -232,6 +268,8 @@ async function loadAudio(audioData) {
         audio.duration,
     );
 
+    logAudioDiagnostics("Summary loaded and paused before ready notification");
+
     sendState();
 }
 
@@ -241,11 +279,14 @@ async function loadAudio(audioData) {
 
 async function togglePlayPause() {
     console.log("[BLV Offscreen] Toggle requested");
+    logAudioDiagnostics("toggle-play-pause received");
 
     // The notification should always stop when the user
     // explicitly asks to play/pause the summary.
     notificationAudio.pause();
     notificationAudio.currentTime = 0;
+    navigationAudio.pause();
+    navigationAudio.currentTime = 0;
 
     if (!audio.src) {
         console.warn("[BLV Offscreen] No summary audio source!");
@@ -262,18 +303,21 @@ async function togglePlayPause() {
 
     if (audio.paused) {
         console.log("[BLV Offscreen] Calling summary audio.play()");
+        logAudioDiagnostics("Calling summary audio.play()");
 
         try {
             await audio.play();
+            console.log("[BLV Offscreen] Summary audio.play() succeeded");
+            logAudioDiagnostics("Summary audio.play() succeeded");
         } catch (error) {
             console.error(
                 "[BLV Offscreen] Failed to play summary audio:",
                 error,
             );
+            console.error("[BLV Offscreen] Summary media error:", audio.error);
+            logAudioDiagnostics("Summary audio.play() rejected");
             throw error;
         }
-
-        console.log("[BLV Offscreen] Summary audio.play() succeeded");
     } else {
         console.log("[BLV Offscreen] Calling summary audio.pause()");
 
@@ -392,6 +436,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
 
         (async () => {
+            logAudioDiagnostics("Starting navigation notification");
+
             // Stop anything currently playing.
             audio.pause();
 
@@ -403,6 +449,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
             // Play the navigation announcement.
             await navigationAudio.play();
+            logAudioDiagnostics("Navigation notification started");
         })().catch((error) => {
             console.error(
                 "[BLV Offscreen] Navigation notification error:",
@@ -422,6 +469,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
 
         (async () => {
+            logAudioDiagnostics("Starting shortcuts notification");
+
             // Stop summary audio.
             audio.pause();
 
@@ -434,6 +483,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             notificationAudio.currentTime = 0;
 
             await notificationAudio.play();
+            logAudioDiagnostics("Shortcuts notification started");
         })().catch((error) => {
             console.error(
                 "[BLV Offscreen] Shortcut notification error:",

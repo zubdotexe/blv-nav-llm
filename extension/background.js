@@ -2,11 +2,24 @@ const BACKEND_URL = "http://localhost:8787";
 const PAGE_PREFIX = "blvPage:";
 const MAX_CACHED_PAGES = 20;
 
+// Tracks the newest analysis for each tab.
+// If an older navigation finishes after a newer one,
+// its result will be ignored.
+const latestAnalysisByTab = new Map();
+
 async function logEvent(event, data = {}) {
     const result = await chrome.storage.local.get("blvLogs");
     const logs = Array.isArray(result.blvLogs) ? result.blvLogs : [];
-    logs.push({ event, data, ts: new Date().toISOString() });
-    await chrome.storage.local.set({ blvLogs: logs.slice(-5000) });
+
+    logs.push({
+        event,
+        data,
+        ts: new Date().toISOString(),
+    });
+
+    await chrome.storage.local.set({
+        blvLogs: logs.slice(-5000),
+    });
 }
 
 function pageKey(url) {
@@ -24,7 +37,10 @@ async function ensureOffscreenDocument() {
     }
 
     if (offscreenCreationPromise) {
-        console.log("[BLV Background] Waiting for existing offscreen creation");
+        console.log(
+            "[BLV Background] Waiting for existing offscreen creation"
+        );
+
         await offscreenCreationPromise;
         return;
     }
@@ -40,7 +56,10 @@ async function ensureOffscreenDocument() {
 
     try {
         await offscreenCreationPromise;
-        console.log("[BLV Background] Offscreen document created");
+
+        console.log(
+            "[BLV Background] Offscreen document created"
+        );
     } finally {
         offscreenCreationPromise = null;
     }
@@ -49,11 +68,17 @@ async function ensureOffscreenDocument() {
 async function sendToOffscreen(message) {
     await ensureOffscreenDocument();
 
-    console.log("[BLV Background] Sending to offscreen:", message.type);
+    console.log(
+        "[BLV Background] Sending to offscreen:",
+        message.type
+    );
 
     const response = await chrome.runtime.sendMessage(message);
 
-    console.log("[BLV Background] Offscreen response:", response);
+    console.log(
+        "[BLV Background] Offscreen response:",
+        response
+    );
 
     return response;
 }
@@ -64,9 +89,13 @@ async function prunePageCache() {
     const pageEntries = Object.entries(all)
         .filter(
             ([key, value]) =>
-                key.startsWith(PAGE_PREFIX) && value && value.updatedAt,
+                key.startsWith(PAGE_PREFIX) &&
+                value &&
+                value.updatedAt
         )
-        .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt));
+        .sort((a, b) =>
+            b[1].updatedAt.localeCompare(a[1].updatedAt)
+        );
 
     const remove = pageEntries.slice(MAX_CACHED_PAGES);
 
@@ -77,342 +106,627 @@ async function prunePageCache() {
     }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(
+    (message, sender, sendResponse) => {
 
-    if (message.type === "page-structure-ready") {
-        (async () => {
-            const tabId = sender.tab?.id;
-            const url = message.structure?.url;
+        // =========================================================
+        // PAGE STRUCTURE READY
+        // =========================================================
 
-            if (!tabId || !url) return;
+        if (message.type === "page-structure-ready") {
 
-            const startedAt = Date.now();
+            console.log("========================================");
+            console.log(
+                "[BLV Background] PAGE STRUCTURE RECEIVED"
+            );
+            console.log(
+                "[BLV Background] URL:",
+                message.structure?.url
+            );
+            console.log(
+                "[BLV Background] Title:",
+                message.structure?.title
+            );
+            console.log(
+                "[BLV Background] Element count:",
+                message.structure?.elementCount
+            );
+            console.log(
+                "[BLV Background] Reason:",
+                message.reason
+            );
+            console.log(
+                "[BLV Background] Tab ID:",
+                sender.tab?.id
+            );
+            console.log(
+                "[BLV Background] Time:",
+                new Date().toISOString()
+            );
+            console.log("========================================");
 
-            try {
-                await logEvent("analysis-start", {
-                    url,
-                    tabId,
-                    elementCount: message.structure.elementCount,
-                });
+            (async () => {
 
-                console.log("\n========== ANALYSIS START ==========");
-                console.log("[BLV Background] URL:", url);
+                const tabId = sender.tab?.id;
+                const url = message.structure?.url;
+
+                if (tabId == null || !url) {
+                    console.warn(
+                        "[BLV Background] Missing tab ID or URL"
+                    );
+
+                    sendResponse({
+                        ok: false,
+                        error: "Missing tab ID or URL",
+                    });
+
+                    return;
+                }
+
+                // Create a unique ID for this analysis.
+                const analysisId = crypto.randomUUID();
+
+                // This becomes the newest analysis for this tab.
+                latestAnalysisByTab.set(tabId, analysisId);
+
                 console.log(
-                    "[BLV Background] Element count:",
-                    message.structure.elementCount
+                    "[BLV Background] New analysis registered"
+                );
+                console.log(
+                    "[BLV Background] Analysis ID:",
+                    analysisId
+                );
+                console.log(
+                    "[BLV Background] Tab ID:",
+                    tabId
+                );
+                console.log(
+                    "[BLV Background] URL:",
+                    url
                 );
 
-                // ==============================
-                // 1. CALL BACKEND
-                // ==============================
+                const startedAt = Date.now();
 
-                const response = await fetch(`${BACKEND_URL}/summarize`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        structure: message.structure
-                    }),
-                });
+                // -------------------------------------------------
+                // Helper to determine whether this analysis is
+                // still the newest navigation for this tab.
+                // -------------------------------------------------
 
-                if (!response.ok) {
-                    throw new Error(
-                        `Backend returned ${response.status}`
+                function isLatestAnalysis() {
+                    return (
+                        latestAnalysisByTab.get(tabId) ===
+                        analysisId
                     );
                 }
 
-                const result = await response.json();
+                try {
 
-                console.log(
-                    "[BLV Background] Backend response received"
-                );
+                    await logEvent("analysis-start", {
+                        url,
+                        tabId,
+                        analysisId,
+                        elementCount:
+                            message.structure.elementCount,
+                    });
 
-                // ==============================
-                // 2. LOG LLM SUMMARY
-                // ==============================
-
-                console.log("\n========== LLM SUMMARY ==========");
-                console.log(result.summary);
-                console.log("==================================");
-
-                console.log(
-                    "[BLV Background] Summary length:",
-                    result.summary?.length
-                );
-
-                // ==============================
-                // 3. LOG AUDIO
-                // ==============================
-
-                console.log("\n========== AUDIO DATA ==========");
-                console.log(
-                    "[BLV Background] Audio exists:",
-                    Boolean(result.audio)
-                );
-
-                console.log(
-                    "[BLV Background] Audio length:",
-                    result.audio?.length
-                );
-
-                console.log(
-                    "[BLV Background] Audio prefix:",
-                    result.audio?.substring(0, 40)
-                );
-
-                console.log("================================");
-
-                if (!result.summary || !result.audio) {
-                    throw new Error(
-                        "Backend response is missing summary or audio"
+                    console.log(
+                        "\n========== ANALYSIS START =========="
                     );
+
+                    console.log(
+                        "[BLV Background] URL:",
+                        url
+                    );
+
+                    console.log(
+                        "[BLV Background] Analysis ID:",
+                        analysisId
+                    );
+
+                    console.log(
+                        "[BLV Background] Element count:",
+                        message.structure.elementCount
+                    );
+
+                    // =================================================
+                    // 1. CALL BACKEND
+                    // =================================================
+
+                    console.log(
+                        "[BLV Background] Sending to backend:",
+                        url
+                    );
+
+                    const response = await fetch(
+                        `${BACKEND_URL}/summarize`,
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type":
+                                    "application/json",
+                            },
+                            body: JSON.stringify({
+                                structure:
+                                    message.structure,
+                            }),
+                        }
+                    );
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `Backend returned ${response.status}`
+                        );
+                    }
+
+                    const result =
+                        await response.json();
+
+                    console.log(
+                        "[BLV Background] Backend response received for:",
+                        url
+                    );
+
+                    // =================================================
+                    // IMPORTANT:
+                    // Check whether another navigation happened
+                    // while the backend was processing.
+                    // =================================================
+
+                    if (!isLatestAnalysis()) {
+
+                        console.log(
+                            "[BLV Background] IGNORING STALE RESULT"
+                        );
+
+                        console.log(
+                            "[BLV Background] Stale URL:",
+                            url
+                        );
+
+                        console.log(
+                            "[BLV Background] Analysis ID:",
+                            analysisId
+                        );
+
+                        await logEvent(
+                            "analysis-stale",
+                            {
+                                url,
+                                tabId,
+                                analysisId,
+                            }
+                        );
+
+                        sendResponse({
+                            ok: false,
+                            stale: true,
+                        });
+
+                        return;
+                    }
+
+                    // =================================================
+                    // 2. LOG LLM SUMMARY
+                    // =================================================
+
+                    console.log(
+                        "\n========== LLM SUMMARY =========="
+                    );
+
+                    console.log(result.summary);
+
+                    console.log(
+                        "=================================="
+                    );
+
+                    console.log(
+                        "[BLV Background] Summary length:",
+                        result.summary?.length
+                    );
+
+                    // =================================================
+                    // 3. LOG AUDIO
+                    // =================================================
+
+                    console.log(
+                        "\n========== AUDIO DATA =========="
+                    );
+
+                    console.log(
+                        "[BLV Background] Audio exists:",
+                        Boolean(result.audio)
+                    );
+
+                    console.log(
+                        "[BLV Background] Audio length:",
+                        result.audio?.length
+                    );
+
+                    console.log(
+                        "[BLV Background] Audio prefix:",
+                        result.audio?.substring(0, 40)
+                    );
+
+                    console.log(
+                        "================================"
+                    );
+
+                    if (
+                        !result.summary ||
+                        !result.audio
+                    ) {
+                        throw new Error(
+                            "Backend response is missing summary or audio"
+                        );
+                    }
+
+                    // =================================================
+                    // 4. SAVE RESULT
+                    // =================================================
+
+                    // Check again before saving.
+                    if (!isLatestAnalysis()) {
+
+                        console.log(
+                            "[BLV Background] Analysis became stale before saving"
+                        );
+
+                        sendResponse({
+                            ok: false,
+                            stale: true,
+                        });
+
+                        return;
+                    }
+
+                    const entry = {
+                        url,
+                        title:
+                            message.structure.title || "",
+                        summary: result.summary,
+                        elementCount:
+                            message.structure.elementCount,
+                        updatedAt:
+                            new Date().toISOString(),
+                    };
+
+                    await chrome.storage.local.set({
+                        [pageKey(url)]: entry,
+                    });
+
+                    await prunePageCache();
+
+                    console.log(
+                        "[BLV Background] Summary/audio saved to storage"
+                    );
+
+                    // =================================================
+                    // 5. LOAD AUDIO INTO OFFSCREEN
+                    // =================================================
+
+                    // VERY IMPORTANT:
+                    // Don't allow an older navigation to replace
+                    // the audio of a newer navigation.
+
+                    if (!isLatestAnalysis()) {
+
+                        console.log(
+                            "[BLV Background] Analysis became stale before loading audio"
+                        );
+
+                        sendResponse({
+                            ok: false,
+                            stale: true,
+                        });
+
+                        return;
+                    }
+
+                    console.log(
+                        "[BLV Background] Loading summary audio for:",
+                        url
+                    );
+
+                    const loadResult =
+                        await sendToOffscreen({
+                            type: "load-audio",
+                            audio: result.audio,
+                        });
+
+                    console.log(
+                        "[BLV Background] load-audio result:",
+                        loadResult
+                    );
+
+                    // =================================================
+                    // 6. PLAY NOTIFICATION
+                    // =================================================
+
+                    // Check one final time before playing the
+                    // notification.
+
+                    if (!isLatestAnalysis()) {
+
+                        console.log(
+                            "[BLV Background] Analysis became stale before notification"
+                        );
+
+                        sendResponse({
+                            ok: false,
+                            stale: true,
+                        });
+
+                        return;
+                    }
+
+                    console.log(
+                        "[BLV Background] Playing notification for:",
+                        url
+                    );
+
+                    const notificationResult =
+                        await sendToOffscreen({
+                            type: "play-notification",
+                        });
+
+                    console.log(
+                        "[BLV Background] play-notification result:",
+                        notificationResult
+                    );
+
+                    // =================================================
+                    // ANALYSIS COMPLETE
+                    // =================================================
+
+                    console.log(
+                        "\n========== ANALYSIS COMPLETE =========="
+                    );
+
+                    console.log(
+                        "[BLV Background] URL:",
+                        url
+                    );
+
+                    console.log(
+                        "[BLV Background] Analysis ID:",
+                        analysisId
+                    );
+
+                    console.log(
+                        "[BLV Background] Total latency:",
+                        Date.now() - startedAt,
+                        "ms"
+                    );
+
+                    console.log(
+                        "========================================\n"
+                    );
+
+                    await logEvent(
+                        "analysis-complete",
+                        {
+                            url,
+                            tabId,
+                            analysisId,
+                            elementCount:
+                                message.structure.elementCount,
+                            latencyMs:
+                                Date.now() - startedAt,
+                        }
+                    );
+
+                    sendResponse({
+                        ok: true,
+                    });
+
+                } catch (error) {
+
+                    console.error(
+                        "[BLV Background] Analysis error:",
+                        error
+                    );
+
+                    await logEvent(
+                        "analysis-error",
+                        {
+                            url,
+                            tabId,
+                            analysisId,
+                            error: error.message,
+                        }
+                    );
+
+                    sendResponse({
+                        ok: false,
+                        error: error.message,
+                    });
                 }
 
-                // ==============================
-                // 4. SAVE RESULT
-                // ==============================
+            })();
 
-                const entry = {
-                    url,
-                    title: message.structure.title || "",
-                    summary: result.summary,
-                    audio: result.audio,
-                    elementCount: message.structure.elementCount,
-                    updatedAt: new Date().toISOString(),
-                };
+            return true;
+        }
 
-                await chrome.storage.local.set({
-                    [pageKey(url)]: entry
-                });
+        // =========================================================
+        // POPUP CONTROLS
+        // =========================================================
 
-                await prunePageCache();
+        if (message.type === "popup-control") {
 
-                console.log(
-                    "[BLV Background] Summary/audio saved to storage"
+            (async () => {
+
+                try {
+
+                    console.log(
+                        "[BLV Background] Popup control:",
+                        message.action
+                    );
+
+                    const result =
+                        await sendToOffscreen(
+                            message.action
+                        );
+
+                    await logEvent(
+                        "playback-action",
+                        {
+                            action:
+                                message.action.type,
+                        }
+                    );
+
+                    sendResponse({
+                        ok: true,
+                        result,
+                    });
+
+                } catch (error) {
+
+                    console.error(
+                        "[BLV Background] Playback error:",
+                        error
+                    );
+
+                    sendResponse({
+                        ok: false,
+                        error: error.message,
+                    });
+                }
+
+            })();
+
+            return true;
+        }
+
+        // =========================================================
+        // AUDIO STATE
+        // =========================================================
+
+        if (message.type === "get-audio-state") {
+
+            sendToOffscreen({
+                type: "get-audio-state",
+            })
+                .then(() =>
+                    sendResponse({
+                        ok: true,
+                    })
+                )
+                .catch((error) =>
+                    sendResponse({
+                        ok: false,
+                        error: error.message,
+                    })
                 );
 
-                // ==============================
-                // 5. LOAD AUDIO INTO OFFSCREEN
-                // ==============================
+            return true;
+        }
 
-                const loadResult = await sendToOffscreen({
-                    type: "load-audio",
-                    audio: result.audio,
-                });
+        if (message.type === "audio-state") {
 
-                console.log(
-                    "[BLV Background] load-audio result:",
-                    loadResult
-                );
-
-                // ==============================
-                // 6. PLAY NOTIFICATION
-                // ==============================
-
-                const notificationResult = await sendToOffscreen({
-                    type: "play-notification",
-                });
-
-                console.log(
-                    "[BLV Background] play-notification result:",
-                    notificationResult
-                );
-
-                console.log("\n========== ANALYSIS COMPLETE ==========");
-                console.log(
-                    "[BLV Background] Total latency:",
-                    Date.now() - startedAt,
-                    "ms"
-                );
-                console.log("========================================\n");
-
-                await logEvent("analysis-complete", {
-                    url,
-                    tabId,
-                    elementCount: message.structure.elementCount,
-                    latencyMs: Date.now() - startedAt,
-                });
-
-                sendResponse({ ok: true });
-
-            } catch (error) {
-
-                console.error(
-                    "[BLV Background] Analysis error:",
-                    error
-                );
-
-                await logEvent("analysis-error", {
-                    url,
-                    tabId,
-                    error: error.message,
-                });
-
-                sendResponse({
-                    ok: false,
-                    error: error.message
-                });
-            }
-        })();
-
-        return true;
-    }
-
-    // ==============================
-    // POPUP CONTROLS
-    // ==============================
-
-    if (message.type === "popup-control") {
-        (async () => {
-            try {
-                console.log(
-                    "[BLV Background] Popup control:",
-                    message.action
-                );
-
-                const result = await sendToOffscreen(
-                    message.action
-                );
-
-                await logEvent("playback-action", {
-                    action: message.action.type
-                });
-
-                sendResponse({
-                    ok: true,
-                    result
-                });
-
-            } catch (error) {
-
-                console.error(
-                    "[BLV Background] Playback error:",
-                    error
-                );
-
-                sendResponse({
-                    ok: false,
-                    error: error.message
-                });
-            }
-        })();
-
-        return true;
-    }
-
-    // ==============================
-    // AUDIO STATE
-    // ==============================
-
-    if (message.type === "get-audio-state") {
-
-        sendToOffscreen({
-            type: "get-audio-state"
-        })
-            .then(() => sendResponse({ ok: true }))
-            .catch((error) =>
-                sendResponse({
-                    ok: false,
-                    error: error.message
-                })
+            console.log(
+                "[BLV Background] Audio state:",
+                message.state
             );
 
-        return true;
+            chrome.runtime
+                .sendMessage(message)
+                .catch(() => {});
+        }
     }
+);
 
-    if (message.type === "audio-state") {
+// =============================================================
+// KEYBOARD SHORTCUTS
+// =============================================================
+
+chrome.commands.onCommand.addListener(
+    async (command) => {
+
+        const actions = {
+
+            "toggle-play-pause": {
+                type: "toggle-play-pause",
+            },
+
+            rewind: {
+                type: "rewind",
+                seconds: 10,
+            },
+
+            "speed-up": {
+                type: "set-speed",
+                delta: 1,
+            },
+
+            "slow-down": {
+                type: "set-speed",
+                delta: -1,
+            },
+        };
+
+        const action = actions[command];
+
+        if (!action) {
+            return;
+        }
 
         console.log(
-            "[BLV Background] Audio state:",
-            message.state
+            "[BLV Background] Keyboard shortcut:",
+            command
         );
 
-        chrome.runtime.sendMessage(message).catch(() => {});
-    }
-});
+        try {
 
-// ==============================
-// KEYBOARD SHORTCUTS
-// ==============================
+            await sendToOffscreen(action);
 
-chrome.commands.onCommand.addListener(async (command) => {
+            await logEvent(
+                "playback-action",
+                {
+                    action: action.type,
+                    source: "keyboard",
+                }
+            );
 
-    const actions = {
-        "toggle-play-pause": {
-            type: "toggle-play-pause"
-        },
+        } catch (error) {
 
-        rewind: {
-            type: "rewind",
-            seconds: 10
-        },
+            await logEvent(
+                "playback-error",
+                {
+                    action: action.type,
+                    error: error.message,
+                }
+            );
 
-        "fast-forward": {
-            type: "fast-forward",
-            seconds: 10
-        },
-
-        "speed-up": {
-            type: "set-speed",
-            delta: 1
-        },
-
-        "slow-down": {
-            type: "set-speed",
-            delta: -1
+            console.error(
+                "[BLV Background] Keyboard playback error:",
+                error
+            );
         }
-    };
-
-    const action = actions[command];
-
-    if (!action) return;
-
-    console.log(
-        "[BLV Background] Keyboard shortcut:",
-        command
-    );
-
-    try {
-
-        await sendToOffscreen(action);
-
-        await logEvent("playback-action", {
-            action: action.type,
-            source: "keyboard"
-        });
-
-    } catch (error) {
-
-        await logEvent("playback-error", {
-            action: action.type,
-            error: error.message
-        });
-
-        console.error(
-            "[BLV Background] Keyboard playback error:",
-            error
-        );
     }
-});
+);
 
-// ==============================
+// =============================================================
 // POPUP CONNECTION
-// ==============================
+// =============================================================
 
 chrome.runtime.onConnect.addListener((port) => {
 
     if (port.name === "popup") {
 
-        port.onMessage.addListener((message) => {
+        port.onMessage.addListener(
+            (message) => {
 
-            if (message.type === "popup-get-audio-state") {
+                if (
+                    message.type ===
+                    "popup-get-audio-state"
+                ) {
 
-                sendToOffscreen({
-                    type: "get-audio-state"
-                }).catch(() => {});
-
+                    sendToOffscreen({
+                        type: "get-audio-state",
+                    }).catch(() => {});
+                }
             }
-        });
+        );
     }
 });

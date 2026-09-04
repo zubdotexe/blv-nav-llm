@@ -96,7 +96,7 @@ async function generateSummary(structure) {
 }
 
 async function generateTts(summary) {
-    const model = process.env.PIPER_MODEL || "en_US-lessac-medium";
+    const model = process.env.PIPER_MODEL || "en_US-amy-medium";
 
     const outputFile = path.join(os.tmpdir(), `blv-${crypto.randomUUID()}.wav`);
 
@@ -160,6 +160,7 @@ app.post("/summarize", async (req, res) => {
 
         // 1. Generate summary using the LLM
         const summary = await generateSummary(structure);
+        // const summary = 'This is a GitHub repository page for BLV Page Navigator, a Chrome extension. The top region holds the global navigation bar with repository tabs: Code, Issues, Pull requests, Agents, Actions, Projects, Wiki, Security, Insights, and Settings. There is a quick search button labeled Type slash to search, plus repository actions including Pin, Watch, Fork, and Star. Below that, the main content area displays a repository files table listing backend, extension, README.md, and package lock.json. The central article begins with the heading BLV Page Navigator and contains sections on project structure, starting the backend, loading the extension, testing extraction, keyboard controls, the popup, study logs, implementation notes, and open questions. A right sidebar shows repository statistics and links to About, Releases, Packages, Contributors, and Languages. The bottom footer contains Terms, Privacy, Security, Status, Community, Docs, Contact, and cookie management links.'
 
         if (!summary) {
             throw new Error("LLM returned an empty summary");

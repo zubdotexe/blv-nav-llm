@@ -61,21 +61,17 @@
         "[BLV Content] Sending structure to background..."
       );
 
+      // Fire-and-forget notification.
+      // We do not expect a response from the background script.
       chrome.runtime.sendMessage({
         type: "page-structure-ready",
         structure,
         extractionLatencyMs,
-        reason
-      })
-      .then(() => {
-        console.log(
-          "[BLV Content] Message sent successfully"
-        );
-      })
-      .catch((error) => {
-        console.error(
-          "[BLV Content] Failed to send message:",
-          error
+        reason,
+      }).catch((error) => {
+        console.warn(
+          "[BLV Content] Failed to notify background:",
+          error.message
         );
       });
 

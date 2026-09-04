@@ -1,14 +1,18 @@
 const audio = document.getElementById("summaryAudio");
 const notificationAudio = document.getElementById("notificationAudio");
+const navigationAudio = document.createElement("audio");
 
+notificationAudio.preload = "auto";
 notificationAudio.src = chrome.runtime.getURL("audio/shortcuts.wav");
+
+navigationAudio.preload = "auto";
+navigationAudio.src = chrome.runtime.getURL("audio/navigation.wav");
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 let audioLoadId = 0;
 
 console.log("[BLV Offscreen] Loaded");
-
 
 // ============================================================
 // STATE
@@ -18,9 +22,7 @@ function sendState() {
     const state = {
         paused: audio.paused,
         currentTime: audio.currentTime || 0,
-        duration: Number.isFinite(audio.duration)
-            ? audio.duration
-            : 0,
+        duration: Number.isFinite(audio.duration) ? audio.duration : 0,
         playbackRate: audio.playbackRate,
         hasSrc: Boolean(audio.src),
     };
@@ -33,13 +35,9 @@ function sendState() {
             state,
         })
         .catch((error) => {
-            console.error(
-                "[BLV Offscreen] Failed to send state:",
-                error,
-            );
+            console.error("[BLV Offscreen] Failed to send state:", error);
         });
 }
-
 
 // ============================================================
 // SUMMARY AUDIO EVENTS
@@ -75,12 +73,8 @@ audio.addEventListener("canplay", () => {
 });
 
 audio.addEventListener("error", () => {
-    console.error(
-        "[BLV Offscreen] SUMMARY AUDIO ERROR:",
-        audio.error,
-    );
+    console.error("[BLV Offscreen] SUMMARY AUDIO ERROR:", audio.error);
 });
-
 
 // ============================================================
 // NOTIFICATION AUDIO EVENTS
@@ -105,6 +99,28 @@ notificationAudio.addEventListener("error", () => {
     );
 });
 
+// ============================================================
+// NAVIGATION AUDIO EVENTS
+// ============================================================
+
+navigationAudio.addEventListener("play", () => {
+    console.log("[BLV Offscreen] NAVIGATION PLAY");
+});
+
+navigationAudio.addEventListener("pause", () => {
+    console.log("[BLV Offscreen] NAVIGATION PAUSE");
+});
+
+navigationAudio.addEventListener("ended", () => {
+    console.log("[BLV Offscreen] NAVIGATION FINISHED");
+});
+
+navigationAudio.addEventListener("error", () => {
+    console.error(
+        "[BLV Offscreen] NAVIGATION AUDIO ERROR:",
+        navigationAudio.error,
+    );
+});
 
 // ============================================================
 // LOAD SUMMARY AUDIO
@@ -155,25 +171,19 @@ async function loadAudio(audioData) {
             finished = true;
             cleanup();
 
-            console.log(
-                "[BLV Offscreen] Summary audio loaded and ready.",
-            );
+            console.log("[BLV Offscreen] Summary audio loaded and ready.");
 
             resolve();
         };
 
         const handleCanPlay = () => {
-            console.log(
-                "[BLV Offscreen] canplay received",
-            );
+            console.log("[BLV Offscreen] canplay received");
 
             finish();
         };
 
         const handleLoadedData = () => {
-            console.log(
-                "[BLV Offscreen] loadeddata received",
-            );
+            console.log("[BLV Offscreen] loadeddata received");
 
             // loadeddata is sufficient for our purposes.
             finish();
@@ -204,9 +214,7 @@ async function loadAudio(audioData) {
     // Set the new audio source.
     audio.src = audioData;
 
-    console.log(
-        "[BLV Offscreen] Summary audio source assigned.",
-    );
+    console.log("[BLV Offscreen] Summary audio source assigned.");
 
     // Now start loading.
     audio.load();
@@ -215,9 +223,7 @@ async function loadAudio(audioData) {
 
     // Make sure this is still the latest audio request.
     if (thisLoadId !== audioLoadId) {
-        console.log(
-            "[BLV Offscreen] Ignoring outdated audio load.",
-        );
+        console.log("[BLV Offscreen] Ignoring outdated audio load.");
         return;
     }
 
@@ -228,7 +234,6 @@ async function loadAudio(audioData) {
 
     sendState();
 }
-
 
 // ============================================================
 // PLAY / PAUSE
@@ -243,37 +248,34 @@ async function togglePlayPause() {
     notificationAudio.currentTime = 0;
 
     if (!audio.src) {
-        console.warn(
-            "[BLV Offscreen] No summary audio source!",
-        );
+        console.warn("[BLV Offscreen] No summary audio source!");
         return;
     }
 
-    console.log(
-        "[BLV Offscreen] Summary audio state:",
-        {
-            paused: audio.paused,
-            currentTime: audio.currentTime,
-            duration: audio.duration,
-            readyState: audio.readyState,
-            networkState: audio.networkState,
-        },
-    );
+    console.log("[BLV Offscreen] Summary audio state:", {
+        paused: audio.paused,
+        currentTime: audio.currentTime,
+        duration: audio.duration,
+        readyState: audio.readyState,
+        networkState: audio.networkState,
+    });
 
     if (audio.paused) {
-        console.log(
-            "[BLV Offscreen] Calling summary audio.play()",
-        );
+        console.log("[BLV Offscreen] Calling summary audio.play()");
 
-        await audio.play();
+        try {
+            await audio.play();
+        } catch (error) {
+            console.error(
+                "[BLV Offscreen] Failed to play summary audio:",
+                error,
+            );
+            throw error;
+        }
 
-        console.log(
-            "[BLV Offscreen] Summary audio.play() succeeded",
-        );
+        console.log("[BLV Offscreen] Summary audio.play() succeeded");
     } else {
-        console.log(
-            "[BLV Offscreen] Calling summary audio.pause()",
-        );
+        console.log("[BLV Offscreen] Calling summary audio.pause()");
 
         audio.pause();
     }
@@ -281,98 +283,42 @@ async function togglePlayPause() {
     sendState();
 }
 
-
 // ============================================================
 // REWIND
 // ============================================================
 
-function rewind(seconds = 10) {
-    console.log(
-        "[BLV Offscreen] Rewind requested:",
-        seconds,
-    );
+function rewind(seconds = 5) {
+    console.log("[BLV Offscreen] Rewind requested:", seconds);
 
     if (!audio.src) {
-        console.warn(
-            "[BLV Offscreen] Cannot rewind: no audio source.",
-        );
+        console.warn("[BLV Offscreen] Cannot rewind: no audio source.");
         return;
     }
 
-    audio.currentTime = Math.max(
-        0,
-        audio.currentTime - seconds,
-    );
+    audio.currentTime = Math.max(0, audio.currentTime - seconds);
 
     sendState();
 }
-
-
-// ============================================================
-// FAST FORWARD
-// ============================================================
-
-function fastForward(seconds = 10) {
-    console.log(
-        "[BLV Offscreen] Fast-forward requested:",
-        seconds,
-    );
-
-    if (!audio.src) {
-        console.warn(
-            "[BLV Offscreen] Cannot fast-forward: no audio source.",
-        );
-        return;
-    }
-
-    if (!Number.isFinite(audio.duration)) {
-        console.warn(
-            "[BLV Offscreen] Audio duration is not available yet.",
-        );
-        return;
-    }
-
-    audio.currentTime = Math.min(
-        audio.duration,
-        audio.currentTime + seconds,
-    );
-
-    sendState();
-}
-
 
 // ============================================================
 // SPEED
 // ============================================================
 
 async function setSpeed(delta) {
-    console.log(
-        "[BLV Offscreen] Speed change requested:",
-        delta,
-    );
+    console.log("[BLV Offscreen] Speed change requested:", delta);
 
     if (!audio.src) {
-        console.warn(
-            "[BLV Offscreen] Cannot change speed: no audio source.",
-        );
+        console.warn("[BLV Offscreen] Cannot change speed: no audio source.");
         return;
     }
 
     const wasPlaying = !audio.paused;
 
-    const currentIndex = SPEEDS.indexOf(
-        audio.playbackRate,
-    );
+    const currentIndex = SPEEDS.indexOf(audio.playbackRate);
 
-    const index =
-        currentIndex === -1
-            ? SPEEDS.indexOf(1)
-            : currentIndex;
+    const index = currentIndex === -1 ? SPEEDS.indexOf(1) : currentIndex;
 
-    const nextIndex = Math.min(
-        SPEEDS.length - 1,
-        Math.max(0, index + delta),
-    );
+    const nextIndex = Math.min(SPEEDS.length - 1, Math.max(0, index + delta));
 
     const newSpeed = SPEEDS[nextIndex];
 
@@ -390,16 +336,12 @@ async function setSpeed(delta) {
     // If it was playing before the speed change,
     // make sure it is still playing afterwards.
     if (wasPlaying && audio.paused) {
-        console.log(
-            "[BLV Offscreen] Audio paused unexpectedly. Resuming...",
-        );
+        console.log("[BLV Offscreen] Audio paused unexpectedly. Resuming...");
 
         try {
             await audio.play();
 
-            console.log(
-                "[BLV Offscreen] Audio resumed after speed change.",
-            );
+            console.log("[BLV Offscreen] Audio resumed after speed change.");
         } catch (error) {
             console.error(
                 "[BLV Offscreen] Failed to resume after speed change:",
@@ -411,41 +353,120 @@ async function setSpeed(delta) {
     sendState();
 }
 
-
 // ============================================================
 // MESSAGES FROM BACKGROUND
 // ============================================================
 
-chrome.runtime.onMessage.addListener(
-    (message, _sender, sendResponse) => {
+// ============================================================
+// STOP ALL AUDIO
+// ============================================================
+
+function stopAllAudio() {
+    console.log("[BLV Offscreen] Stopping all audio");
+
+    // Stop summary
+    audio.pause();
+    audio.currentTime = 0;
+
+    // Stop shortcut notification
+    notificationAudio.pause();
+    notificationAudio.currentTime = 0;
+
+    // Stop navigation notification
+    navigationAudio.pause();
+    navigationAudio.currentTime = 0;
+
+    sendState();
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    console.log("[BLV Offscreen] Received message:", message.type);
+
+    // ========================================================
+    // FIRE-AND-FORGET NOTIFICATIONS
+    // ========================================================
+
+    if (message.type === "play-navigation-notification") {
         console.log(
-            "[BLV Offscreen] Received message:",
-            message.type,
+            "[BLV Offscreen] Playing navigation notification"
         );
 
         (async () => {
+            // Stop anything currently playing.
+            audio.pause();
+
+            notificationAudio.pause();
+            notificationAudio.currentTime = 0;
+
+            navigationAudio.pause();
+            navigationAudio.currentTime = 0;
+
+            // Play the navigation announcement.
+            await navigationAudio.play();
+        })().catch((error) => {
+            console.error(
+                "[BLV Offscreen] Navigation notification error:",
+                error
+            );
+        });
+
+        // IMPORTANT:
+        // No sendResponse()
+        // No return true
+        return;
+    }
+
+    if (message.type === "play-notification") {
+        console.log(
+            "[BLV Offscreen] Playing shortcut notification"
+        );
+
+        (async () => {
+            // Stop summary audio.
+            audio.pause();
+
+            // Only one notification should play at a time.
+            navigationAudio.pause();
+            navigationAudio.currentTime = 0;
+
+            // Restart notification from beginning.
+            notificationAudio.pause();
+            notificationAudio.currentTime = 0;
+
+            await notificationAudio.play();
+        })().catch((error) => {
+            console.error(
+                "[BLV Offscreen] Shortcut notification error:",
+                error
+            );
+        });
+
+        // IMPORTANT:
+        // No sendResponse()
+        // No return true
+        return;
+    }
+
+    // ========================================================
+    // REQUEST / RESPONSE MESSAGES
+    // ========================================================
+
+    (async () => {
+        try {
             switch (message.type) {
 
                 // --------------------------------------------
-                // SHORTCUT INSTRUCTIONS
+                // STOP ALL AUDIO
                 // --------------------------------------------
 
-                case "play-notification":
+                case "stop-all-audio":
                     console.log(
-                        "[BLV Offscreen] Playing shortcut notification",
+                        "[BLV Offscreen] Stop-all-audio requested"
                     );
 
-                    // Stop summary audio.
-                    audio.pause();
-
-                    // Restart notification from beginning.
-                    notificationAudio.pause();
-                    notificationAudio.currentTime = 0;
-
-                    await notificationAudio.play();
+                    stopAllAudio();
 
                     break;
-
 
                 // --------------------------------------------
                 // NEW SUMMARY AUDIO
@@ -455,7 +476,6 @@ chrome.runtime.onMessage.addListener(
                     await loadAudio(message.audio);
                     break;
 
-
                 // --------------------------------------------
                 // PLAY / PAUSE
                 // --------------------------------------------
@@ -463,7 +483,6 @@ chrome.runtime.onMessage.addListener(
                 case "toggle-play-pause":
                     await togglePlayPause();
                     break;
-
 
                 // --------------------------------------------
                 // REWIND
@@ -473,26 +492,13 @@ chrome.runtime.onMessage.addListener(
                     rewind(message.seconds || 10);
                     break;
 
-
-                // --------------------------------------------
-                // FAST FORWARD
-                // --------------------------------------------
-
-                case "fast-forward":
-                    fastForward(message.seconds || 10);
-                    break;
-
-
                 // --------------------------------------------
                 // SPEED
                 // --------------------------------------------
 
                 case "set-speed":
-                    await setSpeed(
-                        Number(message.delta || 0),
-                    );
+                    await setSpeed(Number(message.delta || 0));
                     break;
-
 
                 // --------------------------------------------
                 // STATE
@@ -500,34 +506,40 @@ chrome.runtime.onMessage.addListener(
 
                 case "get-audio-state":
                     console.log(
-                        "[BLV Offscreen] State requested",
+                        "[BLV Offscreen] State requested"
                     );
 
                     sendState();
                     break;
 
+                // --------------------------------------------
+                // UNKNOWN
+                // --------------------------------------------
 
                 default:
                     console.warn(
                         "[BLV Offscreen] Unknown message:",
-                        message.type,
+                        message.type
                     );
             }
 
-            sendResponse({ ok: true });
+            sendResponse({
+                ok: true,
+            });
 
-        })().catch((error) => {
+        } catch (error) {
             console.error(
                 "[BLV Offscreen] Message handling error:",
-                error,
+                error
             );
 
             sendResponse({
                 ok: false,
                 error: error.message,
             });
-        });
+        }
+    })();
 
-        return true;
-    },
-);
+    // These messages use sendResponse asynchronously.
+    return true;
+});

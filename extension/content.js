@@ -11,7 +11,7 @@
   console.log("[BLV Content] Document title:", document.title);
   console.log("========================================");
 
-  function sendExtraction(reason = "initial-load") {
+  function sendExtraction(reason = "initial-load", language) {
     if (!window.blvDomExtractor) {
       console.error(
         "[BLV Content] ERROR: blvDomExtractor is not available"
@@ -63,12 +63,18 @@
 
       // Fire-and-forget notification.
       // We do not expect a response from the background script.
-      chrome.runtime.sendMessage({
+      const message = {
         type: "page-structure-ready",
         structure,
         extractionLatencyMs,
         reason,
-      }).catch((error) => {
+      };
+
+      if (language === "bn" || language === "en") {
+        message.language = language;
+      }
+
+      chrome.runtime.sendMessage(message).catch((error) => {
         console.warn(
           "[BLV Content] Failed to notify background:",
           error.message
@@ -82,6 +88,13 @@
       );
     }
   }
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === "request-page-analysis") {
+      console.log("[BLV Content] Summary language for re-analysis:", message.language);
+      sendExtraction("language-change", message.language);
+    }
+  });
 
   function scheduleAnalysis(reason = "spa-navigation") {
     const urlAtDetection = location.href;

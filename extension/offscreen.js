@@ -327,6 +327,35 @@ async function togglePlayPause() {
     sendState();
 }
 
+async function playSummary() {
+    console.log("[BLV Offscreen] Play summary requested");
+
+    notificationAudio.pause();
+    notificationAudio.currentTime = 0;
+    navigationAudio.pause();
+    navigationAudio.currentTime = 0;
+
+    if (!audio.src) {
+        console.warn("[BLV Offscreen] No summary audio source!");
+        return;
+    }
+
+    if (audio.ended) {
+        audio.currentTime = 0;
+    }
+
+    try {
+        await audio.play();
+        console.log("[BLV Offscreen] Summary audio.play() succeeded");
+    } catch (error) {
+        console.error("[BLV Offscreen] Failed to play summary audio:", error);
+        logAudioDiagnostics("Summary play request rejected");
+        throw error;
+    }
+
+    sendState();
+}
+
 // ============================================================
 // REWIND
 // ============================================================
@@ -532,6 +561,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
                 case "toggle-play-pause":
                     await togglePlayPause();
+                    break;
+
+                // --------------------------------------------
+                // PLAY SUMMARY
+                // --------------------------------------------
+
+                case "play-summary":
+                    await playSummary();
                     break;
 
                 // --------------------------------------------

@@ -12,9 +12,18 @@
     <p id="status" aria-live="polite">Loading summary…</p>
     <article id="summary" aria-label="Page summary"></article>
 
+    <div class="language-control">
+      <label for="summary-language">Summary language</label>
+      <select id="summary-language" aria-describedby="summary-language-status">
+        <option value="en">English</option>
+        <option value="bn">বাংলা (Bangla)</option>
+      </select>
+      <span id="summary-language-status" class="visually-hidden" aria-live="polite"></span>
+    </div>
+
     <section class="controls" aria-label="Audio controls">
       <button data-action="rewind" title="Rewind 10 seconds">Rewind</button>
-      <button data-action="toggle-play-pause" title="Play or pause">Play / Pause</button>
+      <button data-action="play-summary" title="Play summary">Play Summary</button>
       <button data-action="fast-forward" title="Fast-forward 10 seconds">Forward</button>
       <button data-action="slow-down" title="Slow down">Slower</button>
       <button data-action="speed-up" title="Speed up">Faster</button>

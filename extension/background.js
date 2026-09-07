@@ -1,5 +1,6 @@
 const BACKEND_URL = "http://localhost:8787";
 const PAGE_PREFIX = "blvPage:";
+const LANGUAGE_KEY = "blvSummaryLanguage";
 const MAX_CACHED_PAGES = 20;
 
 // Tracks the newest analysis for each tab.
@@ -260,6 +261,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                     body: JSON.stringify({
                         structure: message.structure,
+                        language:
+                            message.language === "bn" || message.language === "en"
+                                ? message.language
+                                : ((await chrome.storage.local.get(LANGUAGE_KEY))[LANGUAGE_KEY] === "bn"
+                                    ? "bn"
+                                    : "en"),
                     }),
                 });
 
@@ -517,6 +524,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // =========================================================
     // POPUP CONTROLS
     // =========================================================
+
+    if (message.type === "summary-language-selected") {
+        (async () => {
+            const language = message.language === "bn" ? "bn" : "en";
+
+            console.log("[BLV Background] Selected summary language:", language);
+
+            await chrome.storage.local.set({
+                [LANGUAGE_KEY]: language,
+            });
+
+            if (message.tabId != null) {
+                await chrome.tabs.sendMessage(message.tabId, {
+                    type: "request-page-analysis",
+                    language,
+                });
+            }
+        })().catch((error) => {
+            console.error("[BLV Background] Language selection error:", error);
+        });
+
+        return;
+    }
 
     if (message.type === "popup-control") {
         (async () => {
